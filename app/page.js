@@ -1,103 +1,189 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.js
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+import { useState } from "react";
+import HomeScreen from "./components/HomeScreen";
+import LoadingSpinner from "./components/LoadingSpinner";
+import QuestionSelectScreen from "./components/QuestionSelectScreen";
+import GameScreen from "./components/GameScreen";
+import CompletionScreen from "./components/CompletionScreen";
+import SolutionScreen from "./components/SolutionScreen";
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+export default function Page() {
+  const [screen, setScreen] = useState("home");
+  const [error, setError] = useState(null);
+
+  // Data states
+  const [aiResponse, setAiResponse] = useState(null);
+  const [selectedQuestionPack, setSelectedQuestionPack] = useState(null);
+  const [gamePackData, setGamePackData] = useState(null);
+  const [solutionText, setSolutionText] = useState(null);
+  const [lastGameResult, setLastGameResult] = useState(null);
+
+  // --- BUG FIX: State to track completed question IDs for the current session ---
+  const [completedQuestionIds, setCompletedQuestionIds] = useState(new Set());
+
+  // --- CORE HANDLER FUNCTIONS ---
+
+  const handleProcessRequest = async (formData, action) => {
+    setScreen("loading");
+    setError(null);
+    try {
+      if (action === "game") {
+        const response = await fetch("/api/generate-game", {
+          method: "POST",
+          body: formData,
+        });
+        if (!response.ok)
+          throw new Error(
+            (await response.json()).error || "Failed to parse questions."
+          );
+        const data = await response.json();
+        if (!data.questions || !Array.isArray(data.questions))
+          throw new Error("AI returned an invalid format.");
+        setAiResponse(data);
+        setScreen("selecting");
+      } else if (action === "solution") {
+        const response = await fetch("/api/generate-solution", {
+          method: "POST",
+          body: formData,
+        });
+        if (!response.ok)
+          throw new Error(
+            (await response.json()).error || "Failed to generate solution."
+          );
+        const data = await response.json();
+        setSolutionText(data.solutionText);
+        setScreen("solution");
+      }
+    } catch (err) {
+      setError(err.message);
+      setScreen("home");
+    }
+  };
+
+  const handleSelectQuestion = async (item) => {
+    setSelectedQuestionPack(item);
+    setScreen("generating");
+    setError(null);
+
+    const questionsToProcess = item.subQuestions || [item];
+
+    try {
+      const gameDataPromises = questionsToProcess.map((q) =>
+        fetch("/api/generate-mcq", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ questionText: q.text }),
+        }).then((res) => {
+          if (!res.ok)
+            throw new Error(`Failed to generate game for "${q.label}"`);
+          return res.json();
+        })
+      );
+
+      const generatedGames = await Promise.all(gameDataPromises);
+      setGamePackData(generatedGames);
+      setScreen("game");
+    } catch (err) {
+      setError(err.message);
+      setScreen("selecting");
+    }
+  };
+
+  const handleGameComplete = (result) => {
+    setLastGameResult(result);
+    setGamePackData(null);
+    setScreen("complete");
+
+    // --- BUG FIX: Add the IDs of all completed questions to our state set ---
+    const questionsCompleted = selectedQuestionPack.subQuestions || [
+      selectedQuestionPack,
+    ];
+    const completedIds = questionsCompleted.map((q) => q.id);
+    setCompletedQuestionIds((prev) => new Set([...prev, ...completedIds]));
+  };
+
+  // --- RENDER LOGIC ---
+  const renderScreen = () => {
+    if (error && (screen === "home" || screen === "selecting")) {
+      return (
+        <div className="w-full max-w-md mx-auto text-center">
+          <p className="p-4 bg-red-100 text-red-700 rounded-lg">{error}</p>
+          <button
+            onClick={() => {
+              setError(null);
+              setScreen("home");
+              setAiResponse(null);
+            }}
+            className="mt-4 text-sm text-gray-600 hover:underline"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+            Try again
+          </button>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
+      );
+    }
+
+    switch (screen) {
+      case "loading":
+      case "generating":
+        return <LoadingSpinner />;
+      case "selecting":
+        return (
+          <QuestionSelectScreen
+            aiResponse={aiResponse}
+            onSelectQuestion={handleSelectQuestion}
+            onBack={() => {
+              setAiResponse(null);
+              setScreen("home");
+            }}
+            completedQuestions={completedQuestionIds} // Pass the set as a prop
           />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
+        );
+      case "game":
+        return (
+          <GameScreen
+            packInfo={selectedQuestionPack}
+            gamePack={gamePackData}
+            onComplete={handleGameComplete}
           />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
+        );
+      case "complete":
+        return (
+          <CompletionScreen
+            keySkill={lastGameResult.keySkill}
+            solvedSteps={lastGameResult.solvedSteps}
+            originalQuestion={
+              selectedQuestionPack.text ||
+              (selectedQuestionPack.subQuestions &&
+                selectedQuestionPack.subQuestions[0].text)
+            }
+            onNext={() => setScreen("selecting")}
           />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+        );
+      case "solution":
+        return (
+          <SolutionScreen
+            solutionText={solutionText}
+            onBack={() => {
+              setSolutionText(null);
+              setScreen("home");
+            }}
+          />
+        );
+      case "home":
+      default:
+        return (
+          <HomeScreen
+            onProcess={handleProcessRequest}
+            isLoading={screen === "loading" || screen === "generating"}
+          />
+        );
+    }
+  };
+
+  return (
+    <main className="flex items-center justify-center min-h-screen bg-gray-50 p-4">
+      {renderScreen()}
+    </main>
   );
 }
