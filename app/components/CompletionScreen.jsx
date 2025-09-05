@@ -9,7 +9,7 @@ export default function CompletionScreen({
       <h2 className="text-3xl font-bold text-green-500">Problem Solved!</h2>
       <p className="text-gray-600 mt-2">Great job! Keep up the amazing work.</p>
       <div className="text-left bg-gray-50 p-4 rounded-lg my-6">
-        <h3 className="font-bold text-gray-800 mb-2">Your Solution Path:</h3>
+        <h3 className="font-bold text-gray-800 mb-2">Your Solution:</h3>
         <p className="text-sm text-gray-500">{originalQuestion}</p>
         {solvedSteps.map((step, index) => (
           <p key={index} className="text-sm text-gray-700">

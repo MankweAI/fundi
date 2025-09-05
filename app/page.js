@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import HomeScreen from "./components/HomeScreen";
 import LoadingSpinner from "./components/LoadingSpinner";
 import QuestionSelectScreen from "./components/QuestionSelectScreen";
@@ -12,54 +12,86 @@ export default function Page() {
   const [screen, setScreen] = useState("home");
   const [error, setError] = useState(null);
 
-  // Data states
   const [aiResponse, setAiResponse] = useState(null);
   const [selectedQuestionPack, setSelectedQuestionPack] = useState(null);
   const [gamePackData, setGamePackData] = useState(null);
   const [solutionText, setSolutionText] = useState(null);
   const [lastGameResult, setLastGameResult] = useState(null);
-
-  // --- BUG FIX: State to track completed question IDs for the current session ---
   const [completedQuestionIds, setCompletedQuestionIds] = useState(new Set());
+  const [sessionStartTime, setSessionStartTime] = useState(null);
+  const [firstCompletionTime, setFirstCompletionTime] = useState(null);
 
-  // --- CORE HANDLER FUNCTIONS ---
-
-  const handleProcessRequest = async (formData, action) => {
-    setScreen("loading");
-    setError(null);
-    try {
-      if (action === "game") {
-        const response = await fetch("/api/generate-game", {
-          method: "POST",
-          body: formData,
+  useEffect(() => {
+    setSessionStartTime(Date.now());
+    trackEvent("session_start");
+    const handleBeforeUnload = () => {
+      if (sessionStartTime) {
+        const sessionLengthSeconds = (Date.now() - sessionStartTime) / 1000;
+        // Note: fetch in 'beforeunload' is not guaranteed, but we try.
+        trackEvent("session_end", {
+          session_length_seconds: sessionLengthSeconds,
         });
-        if (!response.ok)
-          throw new Error(
-            (await response.json()).error || "Failed to parse questions."
-          );
-        const data = await response.json();
-        if (!data.questions || !Array.isArray(data.questions))
-          throw new Error("AI returned an invalid format.");
-        setAiResponse(data);
-        setScreen("selecting");
-      } else if (action === "solution") {
-        const response = await fetch("/api/generate-solution", {
-          method: "POST",
-          body: formData,
-        });
-        if (!response.ok)
-          throw new Error(
-            (await response.json()).error || "Failed to generate solution."
-          );
-        const data = await response.json();
-        setSolutionText(data.solutionText);
-        setScreen("solution");
       }
-    } catch (err) {
-      setError(err.message);
-      setScreen("home");
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
+
+  const trackEvent = async (eventName, properties = {}) => {
+    console.log(`[METRIC TRACKED] Event: ${eventName}`, properties);
+    try {
+      await fetch("/api/track-event", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventName, properties }),
+      });
+    } catch (error) {
+      console.error("Failed to track event to Supabase:", error);
     }
   };
+
+const handleProcessRequest = async (formData, action, inputType) => {
+  // ... (rest of the function is the same, now calls the Supabase-backed trackEvent)
+  setScreen("loading");
+  setError(null);
+  trackEvent("core_action_taken", { action, input_type: inputType });
+  try {
+    if (action === "game") {
+      const response = await fetch("/api/generate-game", {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok)
+        throw new Error(
+          (await response.json()).error || "Failed to parse questions."
+        );
+      const data = await response.json();
+      if (!data.questions || !Array.isArray(data.questions))
+        throw new Error("AI returned an invalid format.");
+      trackEvent("questions_processed", {
+        question_count: data.questions.length,
+      });
+      setAiResponse(data);
+      setScreen("selecting");
+    } else if (action === "solution") {
+      const response = await fetch("/api/generate-solution", {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok)
+        throw new Error(
+          (await response.json()).error || "Failed to generate solution."
+        );
+      const data = await response.json();
+      setSolutionText(data.solutionText);
+      setScreen("solution");
+    }
+  } catch (err) {
+    setError(err.message);
+    setScreen("home");
+  }
+};
+
 
   const handleSelectQuestion = async (item) => {
     setSelectedQuestionPack(item);
