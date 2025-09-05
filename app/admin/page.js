@@ -2,27 +2,36 @@
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-// --- BUG FIX: Add checks to ensure environment variables are loaded correctly ---
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-// Only initialize Supabase if the keys are provided
+// --- BUG FIX: More robust initialization and debugging ---
 let supabase;
-if (supabaseUrl && supabaseAnonKey) {
+let initializationError = null;
+try {
+  // This check is the most important part. It validates the variables before creating the client.
+  if (!supabaseUrl || !supabaseUrl.startsWith("http")) {
+    throw new Error(
+      "Supabase URL is missing or invalid. Please check your environment variables."
+    );
+  }
+  if (!supabaseAnonKey) {
+    throw new Error(
+      "Supabase Anon Key is missing. Please check your environment variables."
+    );
+  }
   supabase = createClient(supabaseUrl, supabaseAnonKey);
+} catch (error) {
+  initializationError = error.message;
 }
 
 export default function AdminDashboard() {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(initializationError); // Set initial error if client failed to create
 
   useEffect(() => {
-    // If Supabase isn't initialized, we can't fetch data.
-    if (!supabase) {
-      setError(
-        "Supabase URL or Anon Key is missing. Please check your .env.local file."
-      );
+    if (initializationError) {
       setLoading(false);
       return;
     }
@@ -79,23 +88,41 @@ export default function AdminDashboard() {
     };
   }, [events]);
 
-  // Add a specific error message if the client failed to initialize
-  if (!supabase) {
+  // --- BUG FIX: Enhanced error screen that shows the values the app is receiving ---
+  if (error) {
     return (
-      <div className="p-8 font-sans text-red-500">
+      <div className="p-8 font-sans text-red-700 bg-red-50 rounded-lg">
         <h1 className="text-xl font-bold">Configuration Error</h1>
-        <p>
-          Supabase URL or Anon Key is missing. Please check your{" "}
-          <strong>.env.local</strong> file and ensure NEXT_PUBLIC_SUPABASE_URL
-          and NEXT_PUBLIC_SUPABASE_ANON_KEY are set correctly.
+        <p className="mt-2">
+          The dashboard could not load due to a configuration issue.
         </p>
+        <p className="mt-1">
+          <strong>Error Message:</strong> {error}
+        </p>
+        <div className="mt-4 p-4 bg-red-100 rounded">
+          <h2 className="font-semibold">Debugging Information:</h2>
+          <p className="text-sm">
+            Please verify these values in your Vercel project settings under
+            &quot;Environment Variables&quot;.
+          </p>
+          <p className="mt-2 text-xs break-all">
+            <strong>NEXT_PUBLIC_SUPABASE_URL received:</strong>
+            <br />
+            <code>{supabaseUrl || "Not found"}</code>
+          </p>
+          <p className="mt-2 text-xs break-all">
+            <strong>NEXT_PUBLIC_SUPABASE_ANON_KEY received:</strong>
+            <br />
+            <code>
+              {supabaseAnonKey ? "Found (hidden for security)" : "Not found"}
+            </code>
+          </p>
+        </div>
       </div>
     );
   }
 
   if (loading) return <div className="p-8 font-sans">Loading Dashboard...</div>;
-  if (error)
-    return <div className="p-8 font-sans text-red-500">Error: {error}</div>;
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans">
